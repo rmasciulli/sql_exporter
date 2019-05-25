@@ -1,0 +1,10 @@
+# Basic configuration template for SQL exporter.
+databases:
+  - address:
+    user:
+    password: 
+    name:
+    queries:
+      - statement:
+        metric:
+        interval:

@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-type Config struct {
+type Configuration struct {
 	Databases []Database `yaml:"databases"`
 }
 
@@ -42,13 +42,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	var config Config
-	raw, err := ioutil.ReadFile(*configPath)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	err = yaml.Unmarshal(raw, &config)
+	config, err := loadConfiguration(*configPath)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -78,8 +72,23 @@ func main() {
 		}
 	}
 	wg.Wait()
+}
 
-	fmt.Println("sql_exporter")
+func loadConfiguration(path string) (c Configuration, err error) {
+	raw, err := ioutil.ReadFile(path)
+	if err != nil {
+		return c, err
+	}
+	err = yaml.Unmarshal(raw, &c)
+	if err != nil {
+		return c, err
+	}
+
+	if len(c.Databases) == 0 {
+		return c, fmt.Errorf("no database found inside the config file: %s", path)
+	}
+
+	return c, nil
 }
 
 func monitorQuery(db *sqlx.DB, query Query) {

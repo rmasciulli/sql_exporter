@@ -13,7 +13,8 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/inconshreveable/log15"
 	"github.com/jmoiron/sqlx"
-	"gopkg.in/yaml.v2"
+	"github.com/pkg/errors"
+	yaml "gopkg.in/yaml.v2"
 )
 
 type Configuration struct {
@@ -49,9 +50,10 @@ func main() {
 	log15.Info("sql_exporter started")
 
 	// Load the configuration.
+	log15.Info("loading configuration", "path", *configPath)
 	config, err := loadConfiguration(*configPath)
 	if err != nil {
-		fmt.Println(err)
+		log15.Crit("loading configuration", "error", err.Error())
 		os.Exit(1)
 	}
 
@@ -61,15 +63,14 @@ func main() {
 	signal.Notify(c, os.Interrupt, os.Kill)
 	go func() {
 		<-c
-		fmt.Print("\n")
-		log15.Info("interrupt signal received, monitorQuery() stopped")
+		log15.Info("interrupt signal received")
 		cancel()
 	}()
 
 	// Connect to the databases.
 	var wg sync.WaitGroup
 	for _, database := range config.Databases {
-		log15.Info("connecting to the DB", "Address", database.Address, "DBName", database.Name)
+		log15.Info("connecting to database", "address", database.Address, "database", database.Name)
 
 		db, err := sqlx.Connect("mysql", (&mysql.Config{
 			Addr:                 database.Address,
@@ -80,7 +81,7 @@ func main() {
 			AllowNativePasswords: true,
 		}).FormatDSN())
 		if err != nil {
-			log15.Crit(err.Error())
+			log15.Crit("connecting to database", "error", err.Error())
 			os.Exit(1)
 		}
 
@@ -88,33 +89,30 @@ func main() {
 		for _, query := range database.Queries {
 			wg.Add(1)
 			go func(db *sqlx.DB, query Query) {
+				log15.Info("monitoring query", "metric", query.Metric, "database", database.Name)
 				monitorQuery(ctx, db, query)
+				log15.Info("stopped monitoring query", "metric", query.Metric, "database", database.Name)
 				wg.Done()
 			}(db, query)
 		}
 	}
 	wg.Wait()
 
-	log15.Info("program gracefully shutdowned")
+	log15.Info("program gracefully shutdown")
 }
 
 func loadConfiguration(path string) (c Configuration, err error) {
-	log15.Info("loading the configuration", "configPath", path)
-
 	raw, err := ioutil.ReadFile(path)
 	if err != nil {
-		log15.Crit(err.Error())
-		return c, err
+		return c, errors.Wrap(err, "opening file")
 	}
 	err = yaml.Unmarshal(raw, &c)
 	if err != nil {
-		log15.Crit(err.Error())
-		return c, err
+		return c, errors.Wrap(err, "parsing file")
 	}
 
 	if len(c.Databases) == 0 {
-		log15.Crit("no DB found inside the conf file", "configPath", path)
-		return c, fmt.Errorf("no DB found inside the conf file: %s", path)
+		return c, fmt.Errorf("no database found")
 	}
 
 	return c, nil
@@ -124,20 +122,19 @@ func monitorQuery(ctx context.Context, db *sqlx.DB, query Query) {
 	t := time.NewTicker(query.Interval)
 
 	var result float64
-	var now time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case now = <-t.C:
+		case <-t.C:
 		}
 
 		err := db.GetContext(ctx, &result, query.Statement)
 		if err != nil {
-			log15.Warn(err.Error())
+			log15.Error("executing query", "error", err.Error())
 			return
 		}
 
-		log15.Info("query executed", "timeStamp", now, "metric", query.Metric, "result", result)
+		log15.Info("query executed", "metric", query.Metric, "result", result)
 	}
 }

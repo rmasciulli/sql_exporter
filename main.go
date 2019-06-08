@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -14,29 +15,33 @@ import (
 	"github.com/inconshreveable/log15"
 	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	yaml "gopkg.in/yaml.v2"
 )
 
 type Configuration struct {
+	Addr      string     `yaml:"addr"`
 	Databases []Database `yaml:"databases"`
 }
 
 type Database struct {
-	Address  string  `yaml:"address"`
-	User     string  `yaml:"user"`
-	Password string  `yaml:"password"`
-	Name     string  `yaml:"name"`
-	Queries  []Query `yaml:"queries"`
+	Address  string   `yaml:"address"`
+	User     string   `yaml:"user"`
+	Password string   `yaml:"password"`
+	Name     string   `yaml:"name"`
+	Metrics  []Metric `yaml:"metrics"`
 }
 
-type Query struct {
-	Statement string        `yaml:"statement"`
-	Interval  time.Duration `yaml:"interval"`
-	Metric    string        `yaml:"metric"`
+type Metric struct {
+	Statement string            `yaml:"statement"`
+	Interval  time.Duration     `yaml:"interval"`
+	Name      string            `yaml:"name"`
+	Help      string            `yaml:"help"`
+	Labels    prometheus.Labels `yaml:"labels"`
 }
 
 func main() {
-	// Set a Command Line Interface.
 	var (
 		help       = flag.Bool("help", false, "display the help message")
 		configPath = flag.String("config", "config.yaml", "path to the configuration file")
@@ -86,16 +91,39 @@ func main() {
 		}
 
 		// Launch the queries.
-		for _, query := range database.Queries {
+		for _, metric := range database.Metrics {
 			wg.Add(1)
-			go func(db *sqlx.DB, query Query) {
-				log15.Info("monitoring query", "metric", query.Metric, "database", database.Name)
-				monitorQuery(ctx, db, query)
-				log15.Info("stopped monitoring query", "metric", query.Metric, "database", database.Name)
+			go func(db *sqlx.DB, metric Metric) {
+				log15.Info("monitoring metric", "name", metric.Name, "database", database.Name)
+				monitorMetric(ctx, db, metric)
+				log15.Info("stopped monitoring metric", "name", metric.Name, "database", database.Name)
 				wg.Done()
-			}(db, query)
+			}(db, metric)
 		}
 	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	srv := &http.Server{
+		Handler: mux,
+		Addr:    config.Addr,
+	}
+
+	go func() {
+		<-ctx.Done()
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		err := srv.Shutdown(ctx)
+		if err != nil {
+			log15.Error("shutting down http server", "error", err.Error())
+		}
+	}()
+
+	err = srv.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		log15.Crit("starting http server", "error", err.Error())
+		cancel()
+	}
+
 	wg.Wait()
 
 	log15.Info("program gracefully shutdown")
@@ -115,13 +143,29 @@ func loadConfiguration(path string) (c Configuration, err error) {
 		return c, fmt.Errorf("no database found")
 	}
 
+	if len(c.Addr) == 0 {
+		c.Addr = ":8080"
+	}
+
 	return c, nil
 }
 
-func monitorQuery(ctx context.Context, db *sqlx.DB, query Query) {
-	t := time.NewTicker(query.Interval)
+func monitorMetric(ctx context.Context, db *sqlx.DB, metric Metric) {
+	t := time.NewTicker(metric.Interval)
+	log15.Info("initialize metric", "name", metric.Name)
 
-	var result float64
+	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name:        metric.Name,
+		Help:        metric.Help,
+		ConstLabels: metric.Labels,
+	})
+	err := prometheus.Register(gauge)
+	if err != nil {
+		log15.Error("registering metric", "name", metric.Name, "error", err.Error())
+		return
+	}
+
+	var value float64
 	for {
 		select {
 		case <-ctx.Done():
@@ -129,12 +173,13 @@ func monitorQuery(ctx context.Context, db *sqlx.DB, query Query) {
 		case <-t.C:
 		}
 
-		err := db.GetContext(ctx, &result, query.Statement)
+		err := db.GetContext(ctx, &value, metric.Statement)
 		if err != nil {
-			log15.Error("executing query", "error", err.Error())
+			log15.Error("executing statement", "error", err.Error())
 			return
 		}
 
-		log15.Info("query executed", "metric", query.Metric, "result", result)
+		gauge.Set(value)
+		log15.Debug("evaluated metric", "name", metric.Name, "value", value)
 	}
 }

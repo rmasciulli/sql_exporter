@@ -4,7 +4,9 @@ databases:
     user:
     password: 
     name:
-    queries:
+    metrics:
       - statement:
-        metric:
         interval:
+        name:
+        help:
+        labels:

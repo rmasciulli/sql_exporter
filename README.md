@@ -10,7 +10,7 @@ Pros:
 - Support integer and float metrics
 - Each query can be run at a different time interval
 
-- Cons:
+Cons:
 - Currently, only support the gauge metric type
 - Only support SQL databases
 
@@ -42,28 +42,36 @@ Usage of ./sql_exporter:
 
 ## Configuration
 
-A sample configuration file for the application looks like this:
-```
-addr: ":8080"
-databases:
-  - address: localhost:3306
-      user: web_admin
-      password:
-      name: website_information
-      metrics:
-        - statement: "SELECT COUNT(VISIT_ID) FROM VISITS;"
-          interval: 60m
-          name: "Number of visits"
-          help: "Count how many pages have been visited on the website."
-          labels:
-            data_source: "analytics"
-```
+Here is a sample configuration describing the default values with comments:
 
-List of available parameters and of their purpose:
-- `addr` is the port on which the metrics will be exposed (by default, the port is :8080)
-- `databases`  is the list of databases to connect to
-- `address`, `name`, `user` and `password` are the database's information
-- `statement`  is the mysql query to perform
-- `interval` is the minimal interval between each query run
-- `name`  is the name of the Prometheus gauge to spawn
-- `labels`  are the Prometheus labels corresponding to the statement
+```
+# The address on which the server will list (interface:port)
+addr: ":8080"
+
+# One entry per database you want to connect to. Databases 
+# and metrics are handled in parallel.
+databases:
+
+#    # Address of the database (address:port)
+#  - address: localhost:3306
+#    user: web_admin
+#    password:
+#    name: website_information
+
+#    # List of metrics to retrieve for this database
+#    metrics:
+
+#        # Statement to execute
+#      - statement: "select count(visit_id) from visits"
+#        # Interval at which the statement is executed. If the
+#        # statement takes more than the interval duration to
+#        # run, the next execution will start right away.
+#        interval: 60m
+#        # Name of the metric to expose.
+#        name: "namespace_subsystem_name_unit"
+#        # Help message of the metric.
+#        help: "number of visits on the website"
+#        # Labels to add to the metric.
+#        labels:
+#          data_source: "analytics"
+```

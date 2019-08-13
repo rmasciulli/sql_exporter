@@ -84,7 +84,8 @@ You can use `sql_exporter.service` as a template to create your own service conf
 ```
 # /usr/lib/systemd/system/sql_exporter.service
 [Unit]
-Description=SQL Exporter, Prometheus exporter that collect metrics from SQL databasesDocumentation=https://github.com/rmasciulli/sql_exporter/blob/master/README.md
+Description=SQL Exporter, Prometheus exporter that collect metrics from SQL databases
+Documentation=https://github.com/rmasciulli/sql_exporter/blob/master/README.md
 After=network-online.target
 
 [Service]

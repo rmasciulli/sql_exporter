@@ -1,0 +1,15 @@
+# /usr/lib/systemd/system/sql_exporter.service
+[Unit]
+Description=SQL Exporter, Prometheus exporter that collect metrics from SQL databases
+Documentation=https://github.com/rmasciulli/sql_exporter/blob/master/README.md
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/sql_exporter/sql_exporter -conf config.yaml
+KillSignal=SIGINT
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

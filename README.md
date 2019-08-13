@@ -75,3 +75,25 @@ databases:
 #        labels:
 #          data_source: "analytics"
 ```
+
+## sql_exporter as a service
+
+To expose your metrics continuously, you can run sql_exporter as a service.
+You can use `sql_exporter.service` as a template to create your own service configuration:
+
+```
+# /usr/lib/systemd/system/sql_exporter.service
+[Unit]
+Description=SQL Exporter, Prometheus exporter that collect metrics from SQL databasesDocumentation=https://github.com/rmasciulli/sql_exporter/blob/master/README.md
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/sql_exporter/sql_exporter -conf config.yaml
+KillSignal=SIGINT
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
